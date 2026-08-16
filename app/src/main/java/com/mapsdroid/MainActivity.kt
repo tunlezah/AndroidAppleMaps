@@ -10,11 +10,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.mapsdroid.links.AppleMapsLink
@@ -40,11 +43,15 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val eulaAccepted by viewModel.eulaAccepted.collectAsState()
-                    // null = still loading the persisted value; render nothing to avoid a flash.
                     when (eulaAccepted) {
                         true -> MapScreen(viewModel)
                         false -> EulaDialog(onAccept = viewModel::acceptEula)
-                        null -> Unit
+                        // null = persisted value still loading. Show a visible indicator rather than a
+                        // blank screen so a stalled read is obvious instead of looking like a crash.
+                        null -> Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) { CircularProgressIndicator() }
                     }
                 }
             }

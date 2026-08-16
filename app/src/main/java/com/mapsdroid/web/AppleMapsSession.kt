@@ -72,11 +72,23 @@ class AppleMapsSession(
             userAgentString = MOBILE_CHROME_UA
         }
         view.addJavascriptInterface(bridge, "AndroidBridge")
+        runCatching { WebView.setWebContentsDebuggingEnabled(true) }
         view.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String?) {
+                onDiagnostic("page finished: $url")
                 // Fallback injection path for devices without DOCUMENT_START_SCRIPT support.
                 if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                     view.evaluateJavascript(injectedScript(), null)
+                }
+            }
+
+            override fun onReceivedError(
+                view: WebView,
+                request: android.webkit.WebResourceRequest,
+                error: android.webkit.WebResourceError,
+            ) {
+                if (request.isForMainFrame) {
+                    onDiagnostic("WebView error ${error.errorCode} on ${request.url}: ${error.description}")
                 }
             }
         }
@@ -87,8 +99,12 @@ class AppleMapsSession(
             }
         }
 
+        // Guarded: an unsupported allowed-origin rule must not crash the WebView factory (which would
+        // blank the screen). We fall back to the onPageFinished injection path if this fails.
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            WebViewCompat.addDocumentStartJavaScript(view, injectedScript(), setOf("https://*.apple.com"))
+            runCatching {
+                WebViewCompat.addDocumentStartJavaScript(view, injectedScript(), setOf("https://*.apple.com"))
+            }.onFailure { onDiagnostic("addDocumentStartJavaScript failed: ${it.message}") }
         }
     }
 

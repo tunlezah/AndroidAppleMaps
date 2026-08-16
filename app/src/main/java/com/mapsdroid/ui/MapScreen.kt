@@ -42,9 +42,23 @@ fun MapScreen(viewModel: MainViewModel) {
     val regions by viewModel.offlineManager.regions.collectAsState()
     val webViewRef = remember { mutableStateOf<WebView?>(null) }
 
+    // Only use the offline map when we are actually offline AND have a downloaded region to render;
+    // otherwise the offline style is a blank background. With no regions downloaded (the default),
+    // this always shows the Apple WebView.
+    val region = location?.point?.let { p -> regions.firstOrNull { it.contains(p) } }
+        ?: regions.firstOrNull()
+    val showOffline = !isOnline && region != null
+
     Box(modifier = Modifier.fillMaxSize()) {
-        if (isOnline) {
-            // Online: the real Apple map via the consumer site.
+        if (showOffline) {
+            OfflineMapView(
+                region = region,
+                navState = navState,
+                location = location,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            // Online (or offline with no region): the real Apple map via the consumer site.
             AndroidView(
                 factory = { ctx ->
                     WebView(ctx).also { web ->
@@ -53,16 +67,6 @@ fun MapScreen(viewModel: MainViewModel) {
                         viewModel.onWebViewReady()
                     }
                 },
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            // Offline: MapLibre + PMTiles, Apple-look style. Uses the region covering the user.
-            val region = location?.point?.let { p -> regions.firstOrNull { it.contains(p) } }
-                ?: regions.firstOrNull()
-            OfflineMapView(
-                region = region,
-                navState = navState,
-                location = location,
                 modifier = Modifier.fillMaxSize(),
             )
         }

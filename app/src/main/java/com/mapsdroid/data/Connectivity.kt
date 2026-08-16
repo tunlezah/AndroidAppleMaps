@@ -39,7 +39,9 @@ class Connectivity(context: Context) {
         return caps.hasInternet()
     }
 
+    // Require only INTERNET, not VALIDATED: VALIDATED can lag for seconds after a network appears,
+    // and treating that gap as "offline" would wrongly show the (blank, region-less) offline map at
+    // startup. We would rather attempt the Apple web map and let it report a load error.
     private fun NetworkCapabilities.hasInternet(): Boolean =
-        hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
 }

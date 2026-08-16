@@ -48,7 +48,7 @@ object NavHub {
     fun init(context: Context) {
         if (::session.isInitialized) return
         appContext = context.applicationContext
-        session = AppleMapsSession(appContext)
+        session = AppleMapsSession(appContext) { android.util.Log.d("MapsDroid", it) }
         connectivity = Connectivity(appContext)
         offlineManager = OfflineMapManager(appContext)
         announcer = Announcer(appContext)
