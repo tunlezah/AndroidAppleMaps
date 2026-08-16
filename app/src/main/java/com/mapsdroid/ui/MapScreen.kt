@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mapsdroid.links.AppleMapsIntent
 import com.mapsdroid.nav.NavPhase
+import com.mapsdroid.offline.OfflineMapView
 
 /**
  * The phone experience: the Apple Maps consumer site full-screen (search, place cards, Look Around,
@@ -36,19 +37,35 @@ fun MapScreen(viewModel: MainViewModel) {
     val navState by viewModel.navState.collectAsState()
     val pending by viewModel.pendingIntent.collectAsState()
     val navTarget by viewModel.navTarget.collectAsState()
+    val isOnline by viewModel.isOnline.collectAsState()
+    val location by viewModel.currentLocation.collectAsState()
+    val regions by viewModel.offlineManager.regions.collectAsState()
     val webViewRef = remember { mutableStateOf<WebView?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { ctx ->
-                WebView(ctx).also { web ->
-                    viewModel.session.attach(web)
-                    webViewRef.value = web
-                    viewModel.onWebViewReady()
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
+        if (isOnline) {
+            // Online: the real Apple map via the consumer site.
+            AndroidView(
+                factory = { ctx ->
+                    WebView(ctx).also { web ->
+                        viewModel.session.attach(web)
+                        webViewRef.value = web
+                        viewModel.onWebViewReady()
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            // Offline: MapLibre + PMTiles, Apple-look style. Uses the region covering the user.
+            val region = location?.point?.let { p -> regions.firstOrNull { it.contains(p) } }
+                ?: regions.firstOrNull()
+            OfflineMapView(
+                region = region,
+                navState = navState,
+                location = location,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         BackHandler(enabled = navState.phase == NavPhase.IDLE) {
             webViewRef.value?.takeIf { it.canGoBack() }?.goBack()

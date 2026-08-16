@@ -3,9 +3,13 @@ package com.mapsdroid.nav
 import android.content.Context
 import com.mapsdroid.core.GeoPoint
 import com.mapsdroid.core.TransportType
+import com.mapsdroid.data.Connectivity
 import com.mapsdroid.directions.DirectionsRepository
 import com.mapsdroid.location.LocationRepository
 import com.mapsdroid.location.LocationService
+import com.mapsdroid.offline.ConnectivityRouteProvider
+import com.mapsdroid.offline.OfflineMapManager
+import com.mapsdroid.offline.ValhallaRouter
 import com.mapsdroid.web.AppleMapsSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,8 +22,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Process-wide owner of the single guidance session, shared by the phone UI and the Android Auto
- * service so both render from one [GuidanceEngine] and one location stream. Initialized once from
- * [com.mapsdroid.MapsApp].
+ * service so both render from one [GuidanceEngine] and one location stream. The route provider is
+ * connectivity-aware: Apple's online directions when the network is up, on-device Valhalla when it is
+ * not. Initialized once from [com.mapsdroid.MapsApp].
  */
 object NavHub {
 
@@ -30,8 +35,12 @@ object NavHub {
         private set
     lateinit var engine: GuidanceEngine
         private set
+    lateinit var connectivity: Connectivity
+        private set
+    lateinit var offlineManager: OfflineMapManager
+        private set
 
-    private lateinit var directions: DirectionsRepository
+    private lateinit var routeProvider: ConnectivityRouteProvider
     private var announcer: Announcer? = null
 
     val state: StateFlow<NavigationState> get() = engine.state
@@ -40,11 +49,15 @@ object NavHub {
         if (::session.isInitialized) return
         appContext = context.applicationContext
         session = AppleMapsSession(appContext)
-        directions = DirectionsRepository(session)
+        connectivity = Connectivity(appContext)
+        offlineManager = OfflineMapManager(appContext)
         announcer = Announcer(appContext)
-        engine = GuidanceEngine(scope, directions, announcer)
 
-        // One location stream drives the engine whenever a route is active.
+        val online = DirectionsRepository(session)
+        val offline = ValhallaRouter(offlineManager)
+        routeProvider = ConnectivityRouteProvider(appContext, online, offline)
+        engine = GuidanceEngine(scope, routeProvider, announcer)
+
         scope.launch {
             LocationRepository.location.filterNotNull().collect { loc ->
                 if (state.value.phase != NavPhase.IDLE) engine.onLocation(loc)
@@ -58,7 +71,7 @@ object NavHub {
             val start = withTimeoutOrNull(LOCATION_WAIT_MS) {
                 LocationRepository.location.filterNotNull().first().point
             } ?: return@launch
-            val route = directions.route(start, destination, transport).firstOrNull() ?: return@launch
+            val route = routeProvider.route(start, destination, transport).firstOrNull() ?: return@launch
             engine.start(route, destination, transport)
         }
     }

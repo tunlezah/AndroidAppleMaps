@@ -18,13 +18,31 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        // Self-signed key committed to the repo so CI produces a stable, sideloadable signature and
+        // app updates install over previous versions. Fine for a personal project; do NOT reuse this
+        // key for anything published to Google Play.
+        create("sideload") {
+            storeFile = rootProject.file("keystore/sideload.jks")
+            storePassword = "sideload"
+            keyAlias = "sideload"
+            keyPassword = "sideload"
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = true
+            // Minification off so the personal sideload APK works reliably without R8 stripping
+            // MapLibre/Compose/serialization internals. Re-enable with tested keep rules for a store build.
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("sideload")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("sideload")
         }
     }
 

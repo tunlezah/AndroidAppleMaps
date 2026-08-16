@@ -23,27 +23,34 @@ So offline is an **open-data substitute**, styled to feel like Apple Maps — no
 | Routing | **Valhalla** compiled via the NDK; its `odin` maneuvers are richer than Apple's text |
 | Search | Offline geocoder over the same extract (Pelias/Nominatim extract or the PMTiles index) |
 
-## What's already scaffolded
+## What's implemented now
 
-- `offline/OfflineRegion.kt` — region model (bbox + local pack paths).
-- `offline/OfflineMapManager.kt` — region metadata + storage; `download()` is the remaining pipeline.
-- `offline/ValhallaRouter.kt` — `RouteProvider` stub; returns empty until the JNI core is wired.
-- `offline/ConnectivityRouteProvider.kt` — **already functional**: picks Apple routing when online,
-  the offline router when not. Wire it into `NavHub` as the engine's `RouteProvider` to activate the
-  fallback the moment Valhalla returns real routes.
+- `offline/OfflineRegion.kt` — region model (bbox + local pack paths), persisted as JSON.
+- `offline/OfflineMapManager.kt` — **real** region download + metadata persistence + delete.
+- `offline/PmTilesDownloader.kt` — **real** streaming download of a `.pmtiles` pack with progress.
+- `offline/StyleProvider.kt` — inlines the region's PMTiles path into the Apple-look style
+  (`assets/style/apple_like_{dark,light}.json`), with a blank-background fallback when no region exists.
+- `offline/OfflineMapView.kt` — **real** MapLibre GL map view (route line + location puck), shown by
+  `MapScreen` automatically when the device goes offline (`Connectivity` drives the switch).
+- `offline/ConnectivityRouteProvider.kt` — wired into `NavHub`: Apple routing online, Valhalla offline.
+- `offline/ValhallaResponseMapper.kt` + polyline6 decoder — **real and unit-tested**: maps a Valhalla
+  `/route` JSON (maneuver types, lanes, shape) into `core.Route`.
+- `offline/ValhallaNative.kt` — JNI bridge that loads `libvalhalla_jni` defensively and degrades to
+  "no offline route" when the `.so` is absent.
 
 Because `GuidanceEngine` consumes any `RouteProvider`, turn-by-turn, off-route detection, and
-rerouting work identically offline once `ValhallaRouter` is implemented — no engine changes.
+rerouting already work offline the moment the native library returns routes — no engine changes.
 
 ## Remaining work
 
-1. **PMTiles download**: fetch a bbox extract (Protomaps extract service or a bundled planet slice)
-   into `filesDir/offline/`; show size before download (like iOS region download UX).
-2. **MapLibre map view**: a Compose `MapView` reading the PMTiles pack with the Apple-look style;
-   swap it in for the WebView when connectivity is lost.
-3. **Valhalla NDK**: build `libvalhalla`, load the region's routing tiles, call `route`, and map
-   `trip.legs[].maneuvers[]` into `core.Route` (lane + maneuver-type data included).
-4. **Reuse in the car**: the same MapLibre renderer is the Android Auto surface fallback
-   (`CarSurfaceRenderer.renderWithMapLibreFallback`).
+1. **Valhalla native library** (`native/valhalla/`): build `libvalhalla_jni.so` via the NDK exposing
+   `nativeRoute(tilesPath, fromLat, fromLng, toLat, toLng, mode) -> JSON`, and a way to fetch/attach a
+   region's routing-tile pack (`OfflineMapManager.attachRoutingTiles`). This is the one piece that
+   needs the NDK toolchain; everything consuming its output is done and tested.
+2. **Region-download UI**: a screen to pick a bounding box and a PMTiles URL and show progress
+   (the manager/downloader APIs are ready).
+3. **Labels offline** (optional): the shipped styles are geometry-only so they render without glyph
+   packs; add local glyph PBFs + symbol layers for place labels offline.
 
-Attribution: OSM data requires `© OpenStreetMap contributors` shown wherever the offline map renders.
+Attribution: OSM data requires `© OpenStreetMap contributors` shown wherever the offline map renders
+(the style sources already carry the attribution string).

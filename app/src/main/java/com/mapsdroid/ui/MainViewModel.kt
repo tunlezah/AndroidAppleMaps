@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mapsdroid.core.GeoPoint
 import com.mapsdroid.core.TransportType
+import com.mapsdroid.data.AppPreferences
 import com.mapsdroid.links.AppleMapsIntent
 import com.mapsdroid.location.LocationRepository
 import com.mapsdroid.location.LocationService
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.mapsdroid.offline.OfflineMapManager
 
 /**
  * Adapts the shared [NavHub] for the phone Compose UI: exposes the guidance state, mediates the
@@ -36,6 +38,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     val currentLocation = LocationRepository.location
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private val preferences = AppPreferences(app)
+    val eulaAccepted: StateFlow<Boolean?> = preferences.eulaAccepted
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val offlineManager: OfflineMapManager get() = NavHub.offlineManager
+
+    /** True when the network is up; drives the switch between the Apple WebView and the offline map. */
+    val isOnline: StateFlow<Boolean> get() = NavHub.connectivity.online
+
+    fun acceptEula() {
+        viewModelScope.launch { preferences.setEulaAccepted(true) }
+    }
 
     init {
         // Mirror the current instruction into the foreground notification.

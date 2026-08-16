@@ -21,13 +21,14 @@ review gate, so the WebView approach is on the table. Two real risks remain, bot
 
 1. **Token origin lock.** MapKit JS tokens are origin-locked to `apple.com`. The captured token may be
    rejected from the car page's `file://` origin. `car.js` reports this via `AndroidCar.onMapError`,
-   and `CarSurfaceRenderer.renderWithMapLibreFallback()` is the stub where the native MapLibre renderer
-   takes over (shared with the Phase 6 offline map).
-2. **Performance.** WebGL-in-a-WebView-on-a-VirtualDisplay is unproven on head units. The MapLibre
-   fallback (benchmarked at ~35 fps in the research) is the escape hatch if frame rate is poor.
+   and `CarSurfaceRenderer` **automatically swaps to a native MapLibre renderer** on the same virtual
+   display (Apple-look style over the downloaded PMTiles region, with the route line + puck) — this
+   fallback is implemented, not a stub.
+2. **Performance.** WebGL-in-a-WebView-on-a-VirtualDisplay is unproven on head units. If frame rate is
+   poor, force the MapLibre path (benchmarked at ~35 fps in the research) instead of the WebView.
 
-If either bites, switch the renderer to MapLibre drawing the same route/puck onto the surface; the
-guidance data path (`NavHub` → `NavigationScreen`) is unchanged.
+Either way the guidance data path (`NavHub` → `NavigationScreen` templates + trip updates) is unchanged;
+only the surface renderer differs.
 
 ## Running it
 

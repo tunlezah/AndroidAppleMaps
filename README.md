@@ -21,7 +21,8 @@ The research that shaped every decision here is in [`RESEARCH.md`](RESEARCH.md).
 | **Turn-by-turn guidance** | A self-built engine (`nav/`): snap-to-route, speed-scaled voice prompts via Android TTS, off-route detection, and rerouting. Apple exposes route *data* but no guidance *session*, even on iOS — so we build the session. |
 | **The "binoculars"** | Look Around via the consumer site's own UI / `look-around` deep links. |
 | **Android Auto** | A `CarAppService` drawing the map to the car surface and driving `NavigationTemplate` from the shared guidance state (`car/`). |
-| **Offline** *(Phase 6, scaffolded)* | Open-data substitute — Protomaps PMTiles + MapLibre (Apple-look style) + on-device Valhalla routing. Apple tiles **cannot** be cached (expiring signed URLs, proprietary VMP4, ToS ban) — see `docs/OFFLINE.md`. |
+| **Offline map** | Real: MapLibre GL renders a downloaded **Protomaps PMTiles** pack with an Apple-look style (`offline/OfflineMapView.kt`), shown automatically when the device goes offline. Region download is real (`PmTilesDownloader`). Apple tiles **cannot** be cached (expiring signed URLs, proprietary VMP4, ToS ban) — see `docs/OFFLINE.md`. |
+| **Offline routing** | Connectivity-aware provider swaps Apple routing for on-device **Valhalla** when offline (`offline/`). The Valhalla response mapper + polyline decoder are implemented and unit-tested; the routing graph itself is native (`libvalhalla_jni`) — the one piece needing the NDK, see `docs/OFFLINE.md`. |
 | **Apple Maps link handling** | Native handling of `maps.apple.com` links shared from iPhones (`links/AppleMapsLink.kt`) instead of bouncing them to Google Maps. |
 
 ### Architecture
@@ -54,7 +55,21 @@ LocationService (foreground, FusedLocation) ──► NavHub ──► GuidanceE
 
 ---
 
-## Building
+## Getting the APK (no local build needed)
+
+Every push builds a **self-signed, sideloadable APK** via GitHub Actions
+(`.github/workflows/android.yml`):
+
+- Open the **Actions** tab → latest "Android CI" run → download the `maps-for-android-apk` artifact.
+- Or push a `v*` tag (e.g. `git tag v0.1.0 && git push --tags`) to attach the APK to a GitHub Release.
+- Install: `adb install maps-for-android.apk`, or open the file on the phone (enable "install unknown apps").
+
+The APK is signed with the committed self-signed key in `keystore/sideload.jks` (password `sideload`).
+This is deliberate for a personal project: a stable signature means updates install over each other. The
+key is **not** for anything published to Google Play. `release` builds have minification off so the
+sideload APK runs reliably.
+
+## Building locally
 
 Requirements: Android Studio (Ladybug+), JDK 17, Android SDK 35.
 

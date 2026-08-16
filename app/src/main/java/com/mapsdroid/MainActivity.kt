@@ -13,9 +13,12 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.mapsdroid.links.AppleMapsLink
+import com.mapsdroid.ui.EulaDialog
 import com.mapsdroid.ui.MainViewModel
 import com.mapsdroid.ui.MapScreen
 
@@ -36,7 +39,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    MapScreen(viewModel)
+                    val eulaAccepted by viewModel.eulaAccepted.collectAsState()
+                    // null = still loading the persisted value; render nothing to avoid a flash.
+                    when (eulaAccepted) {
+                        true -> MapScreen(viewModel)
+                        false -> EulaDialog(onAccept = viewModel::acceptEula)
+                        null -> Unit
+                    }
                 }
             }
         }

@@ -8,25 +8,26 @@ import com.mapsdroid.nav.RouteProvider
 /**
  * Offline route provider backed by Valhalla routing tiles on the device.
  *
- * Phase 6 scaffold. The plan (see docs/OFFLINE.md): bundle Valhalla's C++ core via the NDK, load the
- * region's routing tiles, call `valhalla::route`, and map its `trip.legs[].maneuvers[]` (which include
- * maneuver *types* and lane info — richer than Apple's text-only steps) into our [Route] model. Because
- * the [GuidanceEngine] consumes any [RouteProvider], turn-by-turn, off-route detection, and rerouting
- * work identically offline once this returns real routes.
+ * The routing graph itself is native (Valhalla is C++), so the actual `route()` call is a JNI hop
+ * into `libvalhalla` — the one piece of the offline stack that needs the NDK build (see
+ * `native/valhalla/` and `docs/OFFLINE.md`). Everything around it is real: region lookup, transport
+ * mapping, and the mapping of Valhalla maneuvers (which include maneuver *types* and lane data,
+ * richer than Apple's text-only steps) into our [Route] model via [ValhallaResponseMapper].
  *
- * Until the native library is wired, this returns an empty list so the engine cleanly reports "no
- * offline route available" rather than crashing.
+ * Because the [com.mapsdroid.nav.GuidanceEngine] consumes any [RouteProvider], turn-by-turn,
+ * off-route detection, and rerouting work identically offline once the native library returns routes.
  */
 class ValhallaRouter(
-    private val regionProvider: () -> OfflineRegion?,
+    private val offline: OfflineMapManager,
+    private val native: ValhallaNative = ValhallaNative(),
 ) : RouteProvider {
 
     override suspend fun route(from: GeoPoint, to: GeoPoint, transport: TransportType): List<Route> {
-        val region = regionProvider() ?: return emptyList()
-        if (!region.contains(from) || !region.contains(to) || region.valhallaTilesPath == null) {
-            return emptyList()
-        }
-        // TODO(phase6): JNI call into libvalhalla; map maneuvers → Route. See docs/OFFLINE.md.
-        return emptyList()
+        val region = offline.regionContaining(from)?.takeIf { it.contains(to) } ?: return emptyList()
+        val tiles = region.valhallaTilesPath ?: return emptyList()
+        if (!native.isAvailable) return emptyList()
+        val json = native.route(tiles, from.latitude, from.longitude, to.latitude, to.longitude, transport.name)
+            ?: return emptyList()
+        return ValhallaResponseMapper.map(json, transport)
     }
 }

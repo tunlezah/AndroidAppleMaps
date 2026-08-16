@@ -1,0 +1,35 @@
+{
+  "version": 8,
+  "name": "Apple-like Light",
+  "sources": {
+    "protomaps": {
+      "type": "vector",
+      "url": "__PMTILES_URL__",
+      "attribution": "© OpenStreetMap contributors"
+    }
+  },
+  "layers": [
+    { "id": "background", "type": "background", "paint": { "background-color": "#f2f1ec" } },
+    { "id": "earth", "type": "fill", "source": "protomaps", "source-layer": "earth", "paint": { "fill-color": "#f7f6f2" } },
+    { "id": "landuse_park", "type": "fill", "source": "protomaps", "source-layer": "landuse",
+      "filter": ["in", "kind", "park", "forest", "wood", "grass", "nature_reserve", "recreation_ground"],
+      "paint": { "fill-color": "#d8ecd0" } },
+    { "id": "water", "type": "fill", "source": "protomaps", "source-layer": "water", "paint": { "fill-color": "#a9d3ef" } },
+    { "id": "buildings", "type": "fill", "source": "protomaps", "source-layer": "buildings", "minzoom": 14,
+      "paint": { "fill-color": "#e6e3db", "fill-opacity": 0.9 } },
+    { "id": "roads_minor", "type": "line", "source": "protomaps", "source-layer": "roads",
+      "filter": ["in", "kind", "minor_road", "service", "path"],
+      "paint": { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.5, 16, 3] } },
+    { "id": "roads_medium", "type": "line", "source": "protomaps", "source-layer": "roads",
+      "filter": ["==", "kind", "medium_road"],
+      "paint": { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.8, 16, 5] } },
+    { "id": "roads_major", "type": "line", "source": "protomaps", "source-layer": "roads",
+      "filter": ["==", "kind", "major_road"],
+      "paint": { "line-color": "#fbe6a2", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1, 16, 7] } },
+    { "id": "roads_highway", "type": "line", "source": "protomaps", "source-layer": "roads",
+      "filter": ["==", "kind", "highway"],
+      "paint": { "line-color": "#f6c760", "line-width": ["interpolate", ["linear"], ["zoom"], 6, 1.2, 16, 9] } },
+    { "id": "boundaries", "type": "line", "source": "protomaps", "source-layer": "boundaries",
+      "paint": { "line-color": "#c9c6bd", "line-dasharray": [2, 2], "line-width": 0.8 } }
+  ]
+}
