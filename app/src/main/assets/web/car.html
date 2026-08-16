@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <style>
+    html, body { margin: 0; height: 100%; background: #0b0b0c; overflow: hidden; }
+    #map { position: absolute; inset: 0; }
+  </style>
+  <!-- MapKit JS core loader from Apple's CDN. -->
+  <script src="https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.core.js"
+          crossorigin async
+          data-libraries="map,services"></script>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="car.js"></script>
+</body>
+</html>

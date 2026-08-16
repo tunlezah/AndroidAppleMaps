@@ -1,0 +1,82 @@
+package com.mapsdroid.ui
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.mapsdroid.core.GeoPoint
+import com.mapsdroid.core.TransportType
+import com.mapsdroid.links.AppleMapsIntent
+import com.mapsdroid.location.LocationRepository
+import com.mapsdroid.location.LocationService
+import com.mapsdroid.nav.NavHub
+import com.mapsdroid.nav.NavPhase
+import com.mapsdroid.nav.NavigationState
+import com.mapsdroid.web.AppleMapsSession
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+/**
+ * Adapts the shared [NavHub] for the phone Compose UI: exposes the guidance state, mediates the
+ * WebView lifecycle, routes incoming Apple Maps links, and keeps the ongoing notification in sync.
+ */
+class MainViewModel(app: Application) : AndroidViewModel(app) {
+
+    val session: AppleMapsSession get() = NavHub.session
+    val navState: StateFlow<NavigationState> get() = NavHub.state
+    val tokenCaptured: StateFlow<String?> get() = NavHub.session.token
+
+    private val _pendingIntent = MutableStateFlow<AppleMapsIntent?>(null)
+    val pendingIntent: StateFlow<AppleMapsIntent?> = _pendingIntent
+
+    private val _navTarget = MutableStateFlow<AppleMapsIntent.Directions?>(null)
+    val navTarget: StateFlow<AppleMapsIntent.Directions?> = _navTarget
+
+    val currentLocation = LocationRepository.location
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    init {
+        // Mirror the current instruction into the foreground notification.
+        viewModelScope.launch {
+            var lastStatus: String? = null
+            NavHub.state.collect { state ->
+                if (state.phase == NavPhase.GUIDING || state.phase == NavPhase.REROUTING) {
+                    val status = "${state.primaryInstruction} • ${formatEta(state.durationRemainingSeconds)}"
+                    if (status != lastStatus) {
+                        LocationService.start(getApplication(), status)
+                        lastStatus = status
+                    }
+                }
+            }
+        }
+    }
+
+    fun onWebViewReady() = session.load()
+
+    fun setIntent(intent: AppleMapsIntent) {
+        _pendingIntent.value = intent
+        if (intent is AppleMapsIntent.Directions && intent.destination != null) {
+            _navTarget.value = intent
+        }
+    }
+
+    fun consumeIntent() { _pendingIntent.value = null }
+
+    fun openLookAround(point: GeoPoint) = session.openLookAround(point)
+
+    fun startNavigation(destination: GeoPoint, transport: TransportType) {
+        NavHub.startNavigation(destination, transport)
+    }
+
+    fun stopNavigation() {
+        NavHub.stopNavigation()
+        _navTarget.value = null
+    }
+
+    private fun formatEta(seconds: Double): String {
+        val mins = (seconds / 60).toInt()
+        return if (mins >= 60) "${mins / 60}h ${mins % 60}m" else "${mins}m"
+    }
+}

@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Maps</string>
+
+    <!-- Foreground service -->
+    <string name="nav_channel_name">Navigation</string>
+    <string name="nav_channel_desc">Turn-by-turn guidance and location updates</string>
+    <string name="nav_notification_title">Navigating</string>
+    <string name="nav_notification_default">Following your route</string>
+
+    <!-- Required EULA notice for real-time route guidance (Apple Developer Program requirement). -->
+    <string name="realtime_guidance_notice">YOUR USE OF THIS REAL TIME ROUTE GUIDANCE APPLICATION IS AT YOUR SOLE RISK. LOCATION DATA MAY NOT BE ACCURATE.</string>
+
+    <string name="permission_location_rationale">Maps needs your location to show where you are and to guide you turn-by-turn.</string>
+</resources>
