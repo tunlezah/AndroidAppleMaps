@@ -11,6 +11,7 @@ import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.mapsdroid.core.GeoPoint
@@ -133,6 +134,19 @@ class AppleMapsSession(
         runCatching {
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
+        }
+
+        // Android WebView appends an "X-Requested-With: <package>" header that Chrome never sends.
+        // Servers that do not list it in Access-Control-Allow-Headers fail the CORS preflight, which
+        // surfaces in the page as "TypeError: Failed to fetch". An empty allow-list stops the header
+        // being sent to any origin.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+            runCatching {
+                WebSettingsCompat.setRequestedWithHeaderOriginAllowList(view.settings, emptySet())
+                addDiagnostic("X-Requested-With header suppressed")
+            }.onFailure { addDiagnostic("could not suppress X-Requested-With: ${it.message}") }
+        } else {
+            addDiagnostic("X-Requested-With control unsupported by this WebView")
         }
         view.addJavascriptInterface(bridge, "AndroidBridge")
         runCatching { WebView.setWebContentsDebuggingEnabled(true) }
@@ -338,21 +352,36 @@ class AppleMapsSession(
         (function () {
           try {
             var b = document.body;
-            var webgl = false;
-            try {
-              var c = document.createElement('canvas');
-              webgl = !!(c.getContext('webgl2') || c.getContext('webgl'));
-            } catch (e) {}
+            function rect(id) {
+              var e = document.getElementById(id);
+              if (!e) return null;
+              var r = e.getBoundingClientRect();
+              return [Math.round(r.width), Math.round(r.height)];
+            }
+            var mapRect = rect('shell-map');
+            // If the map container collapsed, force it to fill the viewport so the live mapkit.Map
+            // can actually draw (this is the condition behind the negative-glViewport warning).
+            var repaired = false;
+            if (mapRect && (mapRect[0] <= 0 || mapRect[1] <= 0) && window.innerHeight > 0) {
+              if (window.__mapsdroid && window.__mapsdroid.repairLayout) {
+                repaired = window.__mapsdroid.repairLayout();
+                mapRect = rect('shell-map');
+              }
+            }
             AndroidBridge.onPageProbe(JSON.stringify({
-              url: location.href,
               title: document.title,
-              bodyChildren: b ? b.children.length : -1,
               bodyHtmlLen: b ? b.innerHTML.length : -1,
-              text: b ? (b.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 160) : '',
+              text: b ? (b.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 80) : '',
               canvases: document.querySelectorAll('canvas').length,
               hasMapkit: !!window.mapkit,
               mapkitMaps: (window.mapkit && window.mapkit.maps) ? window.mapkit.maps.length : -1,
-              webgl: webgl,
+              inner: [window.innerWidth, window.innerHeight],
+              dpr: window.devicePixelRatio,
+              wrapper: rect('shell-wrapper'),
+              container: rect('shell-container'),
+              mapOuter: rect('shell-map-outer'),
+              map: mapRect,
+              repaired: repaired,
               readyState: document.readyState
             }));
           } catch (e) {

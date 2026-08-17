@@ -29,6 +29,28 @@
     try { log("JS rejection: " + String(e && e.reason)); } catch (_) {}
   });
 
+  // Transparent fetch logger: reports the URL behind "TypeError: Failed to fetch" without altering
+  // behaviour (the original promise is returned and errors are rethrown unchanged).
+  try {
+    var _fetch = window.fetch;
+    if (typeof _fetch === "function") {
+      window.fetch = function (input, init) {
+        var url = "";
+        try { url = typeof input === "string" ? input : (input && input.url) || ""; } catch (_) {}
+        return _fetch.apply(this, arguments).then(
+          function (response) {
+            try { if (!response.ok) log("fetch " + response.status + " " + url); } catch (_) {}
+            return response;
+          },
+          function (error) {
+            try { log("fetch FAILED " + url + " :: " + String(error)); } catch (_) {}
+            throw error;
+          }
+        );
+      };
+    }
+  } catch (e) {}
+
   window.__mapsdroid = {
     route: function (oLat, oLng, dLat, dLng, transport, requestId) {
       try {
@@ -77,6 +99,36 @@
 
     lookAround: function (lat, lng) {
       try { window.location.href = "https://maps.apple.com/look-around?coordinate=" + lat + "," + lng; } catch (e) {}
+    },
+
+    /**
+     * Last-resort layout repair. If Apple's shell fails to mount (its data fetch failed), the map
+     * containers can collapse to zero/negative height, which is what produces
+     * "glViewport: negative width/height" and an invisible map. Forcing the map chain to fill the
+     * viewport lets the already-created mapkit.Map render even without the surrounding UI.
+     */
+    repairLayout: function () {
+      try {
+        var w = window.innerWidth;
+        var h = window.innerHeight;
+        if (!w || !h) return false;
+        var style = document.getElementById("__mapsdroid_fix");
+        if (!style) {
+          style = document.createElement("style");
+          style.id = "__mapsdroid_fix";
+          document.head.appendChild(style);
+        }
+        style.textContent =
+          "html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;}" +
+          "#shell-wrapper,#shell-container,#shell-map-outer,#shell-map{" +
+          "position:absolute;top:0;left:0;width:" + w + "px;height:" + h + "px;min-height:0;}" +
+          "#shell-map canvas{width:" + w + "px !important;height:" + h + "px !important;}";
+        window.dispatchEvent(new Event("resize"));
+        return true;
+      } catch (e) {
+        log("repairLayout failed: " + e);
+        return false;
+      }
     },
 
     setCamera: function (lat, lng) {
