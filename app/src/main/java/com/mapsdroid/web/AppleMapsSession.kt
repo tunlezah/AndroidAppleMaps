@@ -56,6 +56,17 @@ class AppleMapsSession(
     private val _selectedPlace = MutableStateFlow<GeoPoint?>(null)
     val selectedPlace: StateFlow<GeoPoint?> = _selectedPlace.asStateFlow()
 
+    /** Load state of the Apple Maps page, surfaced in the UI so a blank page is never silent. */
+    sealed interface PageStatus {
+        data object Idle : PageStatus
+        data class Loading(val url: String) : PageStatus
+        data class Finished(val url: String) : PageStatus
+        data class Error(val code: Int, val description: String) : PageStatus
+    }
+
+    private val _pageStatus = MutableStateFlow<PageStatus>(PageStatus.Idle)
+    val pageStatus: StateFlow<PageStatus> = _pageStatus.asStateFlow()
+
     var webView: WebView? = null
         private set
 
@@ -74,7 +85,13 @@ class AppleMapsSession(
         view.addJavascriptInterface(bridge, "AndroidBridge")
         runCatching { WebView.setWebContentsDebuggingEnabled(true) }
         view.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                _pageStatus.value = PageStatus.Loading(url.orEmpty())
+                onDiagnostic("page started: $url")
+            }
+
             override fun onPageFinished(view: WebView, url: String?) {
+                _pageStatus.value = PageStatus.Finished(url.orEmpty())
                 onDiagnostic("page finished: $url")
                 // Fallback injection path for devices without DOCUMENT_START_SCRIPT support.
                 if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
@@ -88,7 +105,19 @@ class AppleMapsSession(
                 error: android.webkit.WebResourceError,
             ) {
                 if (request.isForMainFrame) {
+                    _pageStatus.value = PageStatus.Error(error.errorCode, error.description.toString())
                     onDiagnostic("WebView error ${error.errorCode} on ${request.url}: ${error.description}")
+                }
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView,
+                request: android.webkit.WebResourceRequest,
+                errorResponse: android.webkit.WebResourceResponse,
+            ) {
+                if (request.isForMainFrame) {
+                    _pageStatus.value = PageStatus.Error(errorResponse.statusCode, "HTTP error")
+                    onDiagnostic("HTTP ${errorResponse.statusCode} on ${request.url}")
                 }
             }
         }
@@ -109,8 +138,13 @@ class AppleMapsSession(
     }
 
     fun load() {
-        webView?.loadUrl(CONSUMER_URL)
+        val view = webView ?: return
+        _pageStatus.value = PageStatus.Loading(CONSUMER_URL)
+        main.post { view.loadUrl(CONSUMER_URL) }
     }
+
+    /** Re-loads the Apple Maps page from scratch (used by the retry action). */
+    fun reload() = load()
 
     /**
      * Requests a route via mapkit.Directions running in the page. Returns the parsed routes, or an

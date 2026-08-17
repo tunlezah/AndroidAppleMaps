@@ -43,20 +43,32 @@ object NavHub {
     private lateinit var routeProvider: ConnectivityRouteProvider
     private var announcer: Announcer? = null
 
+    /** True once [init] has fully completed. Guards against a partially-initialized hub. */
+    @Volatile
+    var isReady: Boolean = false
+        private set
+
     val state: StateFlow<NavigationState> get() = engine.state
 
     fun init(context: Context) {
-        if (::session.isInitialized) return
+        if (isReady) return
         appContext = context.applicationContext
         session = AppleMapsSession(appContext) { android.util.Log.d("MapsDroid", it) }
-        connectivity = Connectivity(appContext)
         offlineManager = OfflineMapManager(appContext)
-        announcer = Announcer(appContext)
+
+        // Anything that touches system services or the TTS engine is best-effort: a failure here
+        // must not leave the hub half-built, because the UI reads engine/connectivity on first frame
+        // and an UninitializedPropertyAccessException would blank the screen.
+        connectivity = Connectivity(appContext)
+        announcer = runCatching { Announcer(appContext) }
+            .onFailure { android.util.Log.w("MapsDroid", "TTS unavailable", it) }
+            .getOrNull()
 
         val online = DirectionsRepository(session)
         val offline = ValhallaRouter(offlineManager)
         routeProvider = ConnectivityRouteProvider(appContext, online, offline)
         engine = GuidanceEngine(scope, routeProvider, announcer)
+        isReady = true
 
         scope.launch {
             LocationRepository.location.filterNotNull().collect { loc ->
