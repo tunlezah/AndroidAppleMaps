@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
@@ -84,8 +85,33 @@ class AppleMapsSession(
     var webView: WebView? = null
         private set
 
+    private var pendingLoad = false
+    private var lastWidth = 0
+    private var lastHeight = 0
+
+    /** True once the page load has actually been issued (i.e. after the view had a real size). */
+    var hasLoaded: Boolean = false
+        private set
+
+    /**
+     * Returns the single shared WebView, creating and configuring it on first use.
+     *
+     * Reusing one instance matters: each new WebView allocates its own WebGL context, and the browser
+     * drops the oldest when too many are live ("Too many active WebGL contexts"), which silently kills
+     * the already-rendered map. It is held with the application context so recompositions and
+     * offline/online switches cannot leak an Activity.
+     */
+    fun obtainWebView(context: Context): WebView {
+        webView?.let { existing ->
+            (existing.parent as? ViewGroup)?.removeView(existing)
+            return existing
+        }
+        return WebView(context.applicationContext).also(::attach)
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     fun attach(view: WebView) {
+        if (webView === view) return
         webView = view
         val bridge = MapBridge(this)
         view.settings.apply {
@@ -123,6 +149,8 @@ class AppleMapsSession(
                 if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                     view.evaluateJavascript(injectedScript(), null)
                 }
+                // Insurance: if MapKit measured itself mid-layout, a resize makes it recompute.
+                main.postDelayed({ dispatchResize() }, RESIZE_NUDGE_MS)
                 // Probe twice: immediately, and after the SPA has had time to boot. A blank page shows
                 // up here as an empty body / missing mapkit / no WebGL.
                 view.evaluateJavascript(probeScript(), null)
@@ -174,16 +202,54 @@ class AppleMapsSession(
                 WebViewCompat.addDocumentStartJavaScript(view, injectedScript(), setOf("https://*.apple.com"))
             }.onFailure { onDiagnostic("addDocumentStartJavaScript failed: ${it.message}") }
         }
+
+        // MapKit sizes its GL viewport from the container, so loading before layout produces
+        // "glViewport: negative width/height" and a permanently blank map. Wait for a real size to
+        // load, and tell the page whenever the size changes afterwards.
+        view.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            if (v.width <= 0 || v.height <= 0) return@addOnLayoutChangeListener
+            if (pendingLoad) {
+                maybeLoad()
+            } else if (v.width != lastWidth || v.height != lastHeight) {
+                lastWidth = v.width
+                lastHeight = v.height
+                dispatchResize()
+            }
+        }
     }
 
+    /** Requests the Apple Maps page. The actual load is deferred until the view has a non-zero size. */
     fun load() {
-        val view = webView ?: return
-        _pageStatus.value = PageStatus.Loading(CONSUMER_URL)
-        main.post { view.loadUrl(CONSUMER_URL) }
+        pendingLoad = true
+        maybeLoad()
     }
 
     /** Re-loads the Apple Maps page from scratch (used by the retry action). */
     fun reload() = load()
+
+    private fun maybeLoad() {
+        val view = webView ?: return
+        if (!pendingLoad) return
+        if (view.width <= 0 || view.height <= 0) {
+            addDiagnostic("load deferred until layout (size ${view.width}x${view.height})")
+            return
+        }
+        pendingLoad = false
+        hasLoaded = true
+        lastWidth = view.width
+        lastHeight = view.height
+        _pageStatus.value = PageStatus.Loading(CONSUMER_URL)
+        addDiagnostic("loading at ${view.width}x${view.height}")
+        main.post { view.loadUrl(CONSUMER_URL) }
+    }
+
+    /** Nudges the page to recompute its layout/GL viewport against the current view size. */
+    fun dispatchResize() {
+        val view = webView ?: return
+        main.post {
+            view.evaluateJavascript("window.dispatchEvent(new Event('resize'));", null)
+        }
+    }
 
     /**
      * Requests a route via mapkit.Directions running in the page. Returns the parsed routes, or an
@@ -308,6 +374,7 @@ class AppleMapsSession(
         const val CONSUMER_URL = "https://maps.apple.com/"
         private const val ROUTE_TIMEOUT_MS = 12_000L
         private const val PROBE_DELAY_MS = 6_000L
+        private const val RESIZE_NUDGE_MS = 800L
         private const val MAX_DIAGNOSTICS = 200
         private const val MOBILE_CHROME_UA =
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) " +

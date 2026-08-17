@@ -71,7 +71,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val pageStatus: StateFlow<AppleMapsSession.PageStatus> get() = NavHub.session.pageStatus
     val diagnostics: StateFlow<List<String>> get() = NavHub.session.diagnostics
 
-    fun onWebViewReady() = session.load()
+    /** Loads the map once; re-entering composition must not restart an already-loaded page. */
+    fun onWebViewReady() {
+        if (!session.hasLoaded) session.load()
+    }
 
     fun reloadMap() = session.reload()
 

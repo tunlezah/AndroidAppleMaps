@@ -88,11 +88,21 @@
     },
   };
 
-  // Passive readiness poll only — no wrapping of init/fetch, no defineProperty on window.mapkit.
+  // Readiness poll. NOTE: reading mapkit.Directions before the 'services' library has loaded makes
+  // MapKit *throw* ("mapkit.Directions is available after loading the following library: services"),
+  // so the probe must be inside try/catch or it surfaces as an uncaught page error.
+  function directionsAvailable() {
+    try {
+      return typeof window.mapkit.Directions === "function";
+    } catch (e) {
+      return false;
+    }
+  }
+
   var tries = 0;
   var poll = setInterval(function () {
     tries++;
-    if (window.mapkit && window.mapkit.Directions) {
+    if (window.mapkit && directionsAvailable()) {
       try { AndroidBridge.onMapReady(); } catch (e) {}
       clearInterval(poll);
     }

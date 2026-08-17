@@ -96,9 +96,10 @@ fun MapScreen(viewModel: MainViewModel) {
                 )
             } else {
                 AndroidView(
+                    // Reuse the session's single WebView: creating a new one per composition leaks a
+                    // WebGL context each time and the browser then drops the live map's context.
                     factory = { ctx ->
-                        WebView(ctx).also { web ->
-                            viewModel.session.attach(web)
+                        viewModel.session.obtainWebView(ctx).also { web ->
                             webViewRef.value = web
                             viewModel.onWebViewReady()
                         }
