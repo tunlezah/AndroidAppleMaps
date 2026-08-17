@@ -22,6 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -47,8 +48,20 @@ fun MapScreen(viewModel: MainViewModel) {
     val location by viewModel.currentLocation.collectAsState()
     val regions by viewModel.offlineManager.regions.collectAsState()
     val pageStatus by viewModel.pageStatus.collectAsState()
+    val diagnostics by viewModel.diagnostics.collectAsState()
     val webViewRef = remember { mutableStateOf<WebView?>(null) }
+    var showDiagnostics by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    if (showDiagnostics) {
+        DiagnosticsSheet(
+            lines = diagnostics,
+            onClose = { showDiagnostics = false },
+            onClear = viewModel::clearDiagnostics,
+            onReload = viewModel::reloadMap,
+        )
+        return
+    }
 
     // Only use the offline map when we are actually offline AND have a downloaded region to render;
     // otherwise the offline style is a blank background. With no regions downloaded (the default),
@@ -70,6 +83,7 @@ fun MapScreen(viewModel: MainViewModel) {
                     )
                 }
             },
+            onShowDiagnostics = { showDiagnostics = true },
         )
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {

@@ -24,6 +24,9 @@ class MapBridge(private val callbacks: Callbacks) {
 
         /** Diagnostic logging from the injected scripts. */
         fun onLog(message: String)
+
+        /** Result of the post-load DOM probe (JSON) used to explain a blank page. */
+        fun onPageProbe(json: String)
     }
 
     @JavascriptInterface
@@ -40,4 +43,7 @@ class MapBridge(private val callbacks: Callbacks) {
 
     @JavascriptInterface
     fun log(message: String) = callbacks.onLog(message)
+
+    @JavascriptInterface
+    fun onPageProbe(json: String) = callbacks.onPageProbe(json)
 }

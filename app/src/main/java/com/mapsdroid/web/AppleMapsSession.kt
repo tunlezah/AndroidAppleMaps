@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -67,6 +68,19 @@ class AppleMapsSession(
     private val _pageStatus = MutableStateFlow<PageStatus>(PageStatus.Idle)
     val pageStatus: StateFlow<PageStatus> = _pageStatus.asStateFlow()
 
+    /** Rolling diagnostics (page console output, JS errors, DOM probe) shown in the in-app panel. */
+    private val _diagnostics = MutableStateFlow<List<String>>(emptyList())
+    val diagnostics: StateFlow<List<String>> = _diagnostics.asStateFlow()
+
+    private fun addDiagnostic(line: String) {
+        _diagnostics.value = (_diagnostics.value + line).takeLast(MAX_DIAGNOSTICS)
+        Log.d("MapsDroid", line)
+    }
+
+    fun clearDiagnostics() {
+        _diagnostics.value = emptyList()
+    }
+
     var webView: WebView? = null
         private set
 
@@ -79,8 +93,20 @@ class AppleMapsSession(
             domStorageEnabled = true
             setGeolocationEnabled(true)
             mediaPlaybackRequiresUserGesture = false
+            javaScriptCanOpenWindowsAutomatically = true
+            // Honor the site's <meta viewport> the way Chrome does. Without this the WebView ignores
+            // width=device-width, which can break a responsive SPA's layout maths.
+            useWideViewPort = true
+            loadWithOverviewMode = true
             // Present as a modern mobile Chrome so maps.apple.com serves its full mobile client.
             userAgentString = MOBILE_CHROME_UA
+        }
+        // WebView blocks third-party cookies by default (Chrome does not). Apple's map client talks to
+        // cdn.apple-mapkit.com and *.ls.apple.com for its token/session bootstrap, which can fail
+        // silently and leave an empty page.
+        runCatching {
+            CookieManager.getInstance().setAcceptCookie(true)
+            CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
         }
         view.addJavascriptInterface(bridge, "AndroidBridge")
         runCatching { WebView.setWebContentsDebuggingEnabled(true) }
@@ -92,11 +118,15 @@ class AppleMapsSession(
 
             override fun onPageFinished(view: WebView, url: String?) {
                 _pageStatus.value = PageStatus.Finished(url.orEmpty())
-                onDiagnostic("page finished: $url")
+                addDiagnostic("page finished: $url")
                 // Fallback injection path for devices without DOCUMENT_START_SCRIPT support.
                 if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                     view.evaluateJavascript(injectedScript(), null)
                 }
+                // Probe twice: immediately, and after the SPA has had time to boot. A blank page shows
+                // up here as an empty body / missing mapkit / no WebGL.
+                view.evaluateJavascript(probeScript(), null)
+                main.postDelayed({ webView?.evaluateJavascript(probeScript(), null) }, PROBE_DELAY_MS)
             }
 
             override fun onReceivedError(
@@ -125,6 +155,15 @@ class AppleMapsSession(
             override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
                 // The host Activity gates ACCESS_FINE_LOCATION; within the page we grant Apple's origin.
                 callback.invoke(origin, true, false)
+            }
+
+            // The page's own console output is the most direct explanation of a blank render.
+            override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
+                addDiagnostic(
+                    "console/${message.messageLevel()}: ${message.message()} " +
+                        "(${message.sourceId()?.takeLast(40)}:${message.lineNumber()})",
+                )
+                return true
             }
         }
 
@@ -216,9 +255,45 @@ class AppleMapsSession(
     }
 
     override fun onLog(message: String) {
-        Log.d("AppleMapsSession", message)
+        addDiagnostic(message)
         onDiagnostic(message)
     }
+
+    override fun onPageProbe(json: String) {
+        addDiagnostic("probe: $json")
+        onDiagnostic("probe: $json")
+    }
+
+    /**
+     * Reports what the loaded document actually contains. An empty body with no canvas and no mapkit
+     * is the signature of the SPA failing to boot; `webgl:false` would explain a missing map canvas.
+     */
+    private fun probeScript(): String = """
+        (function () {
+          try {
+            var b = document.body;
+            var webgl = false;
+            try {
+              var c = document.createElement('canvas');
+              webgl = !!(c.getContext('webgl2') || c.getContext('webgl'));
+            } catch (e) {}
+            AndroidBridge.onPageProbe(JSON.stringify({
+              url: location.href,
+              title: document.title,
+              bodyChildren: b ? b.children.length : -1,
+              bodyHtmlLen: b ? b.innerHTML.length : -1,
+              text: b ? (b.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 160) : '',
+              canvases: document.querySelectorAll('canvas').length,
+              hasMapkit: !!window.mapkit,
+              mapkitMaps: (window.mapkit && window.mapkit.maps) ? window.mapkit.maps.length : -1,
+              webgl: webgl,
+              readyState: document.readyState
+            }));
+          } catch (e) {
+            try { AndroidBridge.onPageProbe(JSON.stringify({ error: String(e) })); } catch (_) {}
+          }
+        })();
+    """.trimIndent()
 
     /** The document-start script, read from assets and inlined so it runs before Apple's scripts. */
     private fun injectedScript(): String = cachedScript ?: appContext.assets
@@ -232,6 +307,8 @@ class AppleMapsSession(
     companion object {
         const val CONSUMER_URL = "https://maps.apple.com/"
         private const val ROUTE_TIMEOUT_MS = 12_000L
+        private const val PROBE_DELAY_MS = 6_000L
+        private const val MAX_DIAGNOSTICS = 200
         private const val MOBILE_CHROME_UA =
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/126.0.0.0 Mobile Safari/537.36"

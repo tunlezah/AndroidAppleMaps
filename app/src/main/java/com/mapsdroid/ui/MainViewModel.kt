@@ -69,10 +69,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     val pageStatus: StateFlow<AppleMapsSession.PageStatus> get() = NavHub.session.pageStatus
+    val diagnostics: StateFlow<List<String>> get() = NavHub.session.diagnostics
 
     fun onWebViewReady() = session.load()
 
     fun reloadMap() = session.reload()
+
+    fun clearDiagnostics() = session.clearDiagnostics()
 
     fun setIntent(intent: AppleMapsIntent) {
         _pendingIntent.value = intent

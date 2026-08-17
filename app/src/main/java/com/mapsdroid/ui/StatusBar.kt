@@ -28,6 +28,7 @@ fun StatusBar(
     offlineRegions: Int,
     onReload: () -> Unit,
     onOpenExternally: () -> Unit,
+    onShowDiagnostics: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val pageText = when (pageStatus) {
@@ -65,6 +66,7 @@ fun StatusBar(
             Row {
                 TextButton(onClick = onReload) { Text("Reload", fontSize = 11.sp) }
                 TextButton(onClick = onOpenExternally) { Text("Browser", fontSize = 11.sp) }
+                TextButton(onClick = onShowDiagnostics) { Text("Logs", fontSize = 11.sp) }
             }
         }
     }

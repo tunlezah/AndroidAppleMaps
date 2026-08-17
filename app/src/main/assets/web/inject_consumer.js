@@ -14,6 +14,21 @@
   function log(m) { try { AndroidBridge.log("[inject] " + m); } catch (e) {} }
   function coord(lat, lng) { return new window.mapkit.Coordinate(lat, lng); }
 
+  // Passive error reporting: surfaces the site's own failures (which is what a blank page looks like)
+  // without altering any page behaviour.
+  window.addEventListener("error", function (e) {
+    try {
+      if (e && e.target && e.target.tagName && (e.target.src || e.target.href)) {
+        log("resource failed: " + (e.target.src || e.target.href));
+      } else if (e) {
+        log("JS error: " + (e.message || "?") + " @" + (e.filename || "?") + ":" + (e.lineno || 0));
+      }
+    } catch (_) {}
+  }, true);
+  window.addEventListener("unhandledrejection", function (e) {
+    try { log("JS rejection: " + String(e && e.reason)); } catch (_) {}
+  });
+
   window.__mapsdroid = {
     route: function (oLat, oLng, dLat, dLng, transport, requestId) {
       try {
