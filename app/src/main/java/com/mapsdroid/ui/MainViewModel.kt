@@ -80,6 +80,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearDiagnostics() = session.clearDiagnostics()
 
+    /** Diagnostic: replaces the Apple page with a trivial local page to test rendering. */
+    fun runRenderTest() = session.loadRenderTest()
+
     fun setIntent(intent: AppleMapsIntent) {
         _pendingIntent.value = intent
         if (intent is AppleMapsIntent.Directions && intent.destination != null) {

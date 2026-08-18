@@ -102,10 +102,10 @@
     },
 
     /**
-     * Last-resort layout repair. If Apple's shell fails to mount (its data fetch failed), the map
-     * containers can collapse to zero/negative height, which is what produces
-     * "glViewport: negative width/height" and an invisible map. Forcing the map chain to fill the
-     * viewport lets the already-created mapkit.Map render even without the surrounding UI.
+     * Last-resort layout repair, used only when Apple's shell has finished loading and the map
+     * containers are still collapsed (the condition behind "glViewport: negative width/height").
+     * It is deliberately revertible: if the shell later lays itself out correctly, removeRepair()
+     * takes our overrides back out so we never fight the real layout.
      */
     repairLayout: function () {
       try {
@@ -119,14 +119,26 @@
           document.head.appendChild(style);
         }
         style.textContent =
-          "html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;}" +
           "#shell-wrapper,#shell-container,#shell-map-outer,#shell-map{" +
-          "position:absolute;top:0;left:0;width:" + w + "px;height:" + h + "px;min-height:0;}" +
-          "#shell-map canvas{width:" + w + "px !important;height:" + h + "px !important;}";
+          "width:" + w + "px !important;height:" + h + "px !important;min-height:0 !important;}";
         window.dispatchEvent(new Event("resize"));
+        log("layout repair applied");
         return true;
       } catch (e) {
         log("repairLayout failed: " + e);
+        return false;
+      }
+    },
+
+    removeRepair: function () {
+      try {
+        var style = document.getElementById("__mapsdroid_fix");
+        if (!style) return false;
+        style.parentNode.removeChild(style);
+        window.dispatchEvent(new Event("resize"));
+        log("layout repair reverted (shell laid out correctly)");
+        return true;
+      } catch (e) {
         return false;
       }
     },

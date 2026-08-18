@@ -94,20 +94,37 @@ class AppleMapsSession(
     var hasLoaded: Boolean = false
         private set
 
+    /** Identity of the UI context that owns the current WebView, to detect a recreated Activity. */
+    private var ownerContextId: Int = 0
+
     /**
-     * Returns the single shared WebView, creating and configuring it on first use.
+     * Returns the shared WebView for [context], creating it on first use.
      *
-     * Reusing one instance matters: each new WebView allocates its own WebGL context, and the browser
-     * drops the oldest when too many are live ("Too many active WebGL contexts"), which silently kills
-     * the already-rendered map. It is held with the application context so recompositions and
-     * offline/online switches cannot leak an Activity.
+     * Two constraints are balanced here:
+     *  - It must be built with the **Activity (UI) context**. A WebView created from the application
+     *    context can run and populate its DOM while drawing nothing at all, which looks exactly like a
+     *    blank screen.
+     *  - Only one may be alive at a time. Each instance holds its own WebGL context and the browser
+     *    drops the oldest when too many are live ("Too many active WebGL contexts"), silently killing
+     *    the rendered map. So a stale instance from a previous Activity is destroyed, not leaked.
      */
     fun obtainWebView(context: Context): WebView {
-        webView?.let { existing ->
+        val contextId = System.identityHashCode(context)
+        val existing = webView
+        if (existing != null && ownerContextId == contextId) {
             (existing.parent as? ViewGroup)?.removeView(existing)
             return existing
         }
-        return WebView(context.applicationContext).also(::attach)
+        existing?.let { stale ->
+            (stale.parent as? ViewGroup)?.removeView(stale)
+            runCatching { stale.destroy() }
+            addDiagnostic("replaced stale WebView from a previous Activity")
+        }
+        webView = null
+        hasLoaded = false
+        pendingLoad = false
+        ownerContextId = contextId
+        return WebView(context).also(::attach)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -257,6 +274,21 @@ class AppleMapsSession(
         main.post { view.loadUrl(CONSUMER_URL) }
     }
 
+    /**
+     * Loads a trivial local page instead of Apple Maps. Purely diagnostic: if this renders, the
+     * WebView is drawing correctly and any blankness belongs to the Apple page; if this is also blank,
+     * the WebView itself is not being composited.
+     */
+    fun loadRenderTest() {
+        val view = webView ?: return
+        pendingLoad = false
+        _pageStatus.value = PageStatus.Loading("render-test")
+        addDiagnostic("loading render test at ${view.width}x${view.height}")
+        main.post {
+            view.loadDataWithBaseURL("https://example.invalid/", RENDER_TEST_HTML, "text/html", "utf-8", null)
+        }
+    }
+
     /** Nudges the page to recompute its layout/GL viewport against the current view size. */
     fun dispatchResize() {
         val view = webView ?: return
@@ -358,30 +390,57 @@ class AppleMapsSession(
               var r = e.getBoundingClientRect();
               return [Math.round(r.width), Math.round(r.height)];
             }
+            var complete = document.readyState === 'complete';
             var mapRect = rect('shell-map');
-            // If the map container collapsed, force it to fill the viewport so the live mapkit.Map
-            // can actually draw (this is the condition behind the negative-glViewport warning).
+            var degenerate = mapRect && (mapRect[0] <= 0 || mapRect[1] <= 0);
             var repaired = false;
-            if (mapRect && (mapRect[0] <= 0 || mapRect[1] <= 0) && window.innerHeight > 0) {
-              if (window.__mapsdroid && window.__mapsdroid.repairLayout) {
-                repaired = window.__mapsdroid.repairLayout();
-                mapRect = rect('shell-map');
-              }
+            var reverted = false;
+            // Only intervene once the shell has finished loading: repairing during 'interactive'
+            // fights the shell's own layout as it mounts.
+            if (complete && degenerate && window.innerHeight > 0 && window.__mapsdroid) {
+              repaired = window.__mapsdroid.repairLayout();
+              mapRect = rect('shell-map');
+            } else if (complete && !degenerate && window.__mapsdroid && document.getElementById('__mapsdroid_fix')) {
+              reverted = window.__mapsdroid.removeRepair();
+              mapRect = rect('shell-map');
             }
+
+            // Canvas drawing-buffer vs CSS size: a zero-sized buffer renders nothing.
+            var canvases = Array.prototype.slice.call(document.querySelectorAll('canvas')).map(function (c) {
+              var r = c.getBoundingClientRect();
+              return [c.width, c.height, Math.round(r.width), Math.round(r.height)];
+            });
+
+            // Are Apple's tile/token requests actually succeeding? responseStatus is exposed by
+            // Chromium; transferSize 0 with no duration usually means blocked/failed.
+            var res = {};
+            var bad = [];
+            try {
+              var entries = performance.getEntriesByType('resource');
+              for (var i = 0; i < entries.length; i++) {
+                var e = entries[i];
+                var host = '?';
+                try { host = new URL(e.name).host; } catch (_) {}
+                if (!res[host]) res[host] = 0;
+                res[host]++;
+                var status = e.responseStatus || 0;
+                if (status >= 400 || (status === 0 && e.transferSize === 0 && e.duration === 0)) {
+                  if (bad.length < 6) bad.push((status || 'blocked') + ' ' + e.name.slice(0, 110));
+                }
+              }
+            } catch (_) {}
+
             AndroidBridge.onPageProbe(JSON.stringify({
-              title: document.title,
-              bodyHtmlLen: b ? b.innerHTML.length : -1,
-              text: b ? (b.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 80) : '',
-              canvases: document.querySelectorAll('canvas').length,
+              text: b ? (b.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '',
               hasMapkit: !!window.mapkit,
               mapkitMaps: (window.mapkit && window.mapkit.maps) ? window.mapkit.maps.length : -1,
               inner: [window.innerWidth, window.innerHeight],
-              dpr: window.devicePixelRatio,
-              wrapper: rect('shell-wrapper'),
-              container: rect('shell-container'),
-              mapOuter: rect('shell-map-outer'),
               map: mapRect,
+              canvases: canvases,
               repaired: repaired,
+              reverted: reverted,
+              hosts: res,
+              failures: bad,
               readyState: document.readyState
             }));
           } catch (e) {
@@ -404,6 +463,24 @@ class AppleMapsSession(
         private const val ROUTE_TIMEOUT_MS = 12_000L
         private const val PROBE_DELAY_MS = 6_000L
         private const val RESIZE_NUDGE_MS = 800L
+        private val RENDER_TEST_HTML = """
+            <!doctype html><html><head><meta name="viewport"
+              content="width=device-width, initial-scale=1"></head>
+            <body style="margin:0;font-family:sans-serif">
+              <div style="height:40vh;background:#1D6FF2;color:#fff;display:flex;
+                          align-items:center;justify-content:center;font-size:6vw">
+                WebView renders OK
+              </div>
+              <div style="height:30vh;background:#E0362C"></div>
+              <canvas id="c" style="width:100%;height:30vh;display:block"></canvas>
+              <script>
+                var c = document.getElementById('c');
+                var gl = c.getContext('webgl') || c.getContext('webgl2');
+                if (gl) { gl.clearColor(0.1, 0.7, 0.3, 1); gl.clear(gl.COLOR_BUFFER_BIT); }
+                else { c.style.background = '#999'; }
+              </script>
+            </body></html>
+        """.trimIndent()
         private const val MAX_DIAGNOSTICS = 200
         private const val MOBILE_CHROME_UA =
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) " +

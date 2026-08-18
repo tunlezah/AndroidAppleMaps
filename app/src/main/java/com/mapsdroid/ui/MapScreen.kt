@@ -59,6 +59,11 @@ fun MapScreen(viewModel: MainViewModel) {
             onClose = { showDiagnostics = false },
             onClear = viewModel::clearDiagnostics,
             onReload = viewModel::reloadMap,
+            onRenderTest = {
+                viewModel.runRenderTest()
+                showDiagnostics = false
+            },
+            onOpenExternally = { openAppleMapsExternally(context) },
         )
         return
     }
@@ -76,13 +81,7 @@ fun MapScreen(viewModel: MainViewModel) {
             pageStatus = pageStatus,
             offlineRegions = regions.size,
             onReload = viewModel::reloadMap,
-            onOpenExternally = {
-                runCatching {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse(AppleMapsSession.CONSUMER_URL)),
-                    )
-                }
-            },
+            onOpenExternally = { openAppleMapsExternally(context) },
             onShowDiagnostics = { showDiagnostics = true },
         )
 
@@ -139,6 +138,12 @@ fun MapScreen(viewModel: MainViewModel) {
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+}
+
+private fun openAppleMapsExternally(context: android.content.Context) {
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AppleMapsSession.CONSUMER_URL)))
     }
 }
 

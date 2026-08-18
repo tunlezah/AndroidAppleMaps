@@ -30,6 +30,8 @@ fun DiagnosticsSheet(
     onClose: () -> Unit,
     onClear: () -> Unit,
     onReload: () -> Unit,
+    onRenderTest: () -> Unit,
+    onOpenExternally: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
     Column(
@@ -66,9 +68,14 @@ fun DiagnosticsSheet(
             Button(onClick = { clipboard.setText(AnnotatedString(lines.joinToString("\n"))) }) {
                 Text("Copy")
             }
-            TextButton(onClick = onReload) { Text("Reload page") }
+            TextButton(onClick = onReload) { Text("Reload") }
             TextButton(onClick = onClear) { Text("Clear") }
             TextButton(onClick = onClose) { Text("Close") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // If this shows colour blocks, the WebView draws fine and the blankness is Apple's page.
+            Button(onClick = onRenderTest) { Text("Render test") }
+            TextButton(onClick = onOpenExternally) { Text("Open in browser") }
         }
     }
 }
