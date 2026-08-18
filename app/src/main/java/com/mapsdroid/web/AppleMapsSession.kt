@@ -89,6 +89,7 @@ class AppleMapsSession(
     private var pendingLoad = false
     private var lastWidth = 0
     private var lastHeight = 0
+    private var resizeNudged = false
 
     /** True once the page load has actually been issued (i.e. after the view had a real size). */
     var hasLoaded: Boolean = false
@@ -180,8 +181,13 @@ class AppleMapsSession(
                 if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                     view.evaluateJavascript(injectedScript(), null)
                 }
-                // Insurance: if MapKit measured itself mid-layout, a resize makes it recompute.
-                main.postDelayed({ dispatchResize() }, RESIZE_NUDGE_MS)
+                // Insurance: if MapKit measured itself mid-layout, one resize makes it recompute.
+                // Strictly once per load — the SPA fires onPageFinished repeatedly, and repeated
+                // resizes make MapKit abort in-flight tile requests.
+                if (!resizeNudged) {
+                    resizeNudged = true
+                    main.postDelayed({ dispatchResize() }, RESIZE_NUDGE_MS)
+                }
                 // Probe twice: immediately, and after the SPA has had time to boot. A blank page shows
                 // up here as an empty body / missing mapkit / no WebGL.
                 view.evaluateJavascript(probeScript(), null)
@@ -267,6 +273,7 @@ class AppleMapsSession(
         }
         pendingLoad = false
         hasLoaded = true
+        resizeNudged = false
         lastWidth = view.width
         lastHeight = view.height
         _pageStatus.value = PageStatus.Loading(CONSUMER_URL)
@@ -390,18 +397,17 @@ class AppleMapsSession(
               var r = e.getBoundingClientRect();
               return [Math.round(r.width), Math.round(r.height)];
             }
-            var complete = document.readyState === 'complete';
             var mapRect = rect('shell-map');
             var degenerate = mapRect && (mapRect[0] <= 0 || mapRect[1] <= 0);
+            var alreadyFixed = !!document.getElementById('__mapsdroid_fix');
             var repaired = false;
-            var reverted = false;
-            // Only intervene once the shell has finished loading: repairing during 'interactive'
-            // fights the shell's own layout as it mounts.
-            if (complete && degenerate && window.innerHeight > 0 && window.__mapsdroid) {
+            // The collapse is permanent: with our override removed, the site lays #shell-map out at
+            // height 0. So the repair is STICKY — applied once, never withdrawn. Reverting it made the
+            // rect look healthy (it was healthy *because* of the override), so the old logic oscillated
+            // applied/reverted, and each cycle's resize made MapKit abort its in-flight tile requests
+            // ("AbortError: signal is aborted without reason"), so no tile ever finished loading.
+            if (!alreadyFixed && degenerate && window.innerHeight > 0 && window.__mapsdroid) {
               repaired = window.__mapsdroid.repairLayout();
-              mapRect = rect('shell-map');
-            } else if (complete && !degenerate && window.__mapsdroid && document.getElementById('__mapsdroid_fix')) {
-              reverted = window.__mapsdroid.removeRepair();
               mapRect = rect('shell-map');
             }
 
@@ -438,7 +444,7 @@ class AppleMapsSession(
               map: mapRect,
               canvases: canvases,
               repaired: repaired,
-              reverted: reverted,
+              fixed: alreadyFixed || repaired,
               hosts: res,
               failures: bad,
               readyState: document.readyState

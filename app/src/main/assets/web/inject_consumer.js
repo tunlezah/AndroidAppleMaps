@@ -102,10 +102,12 @@
     },
 
     /**
-     * Last-resort layout repair, used only when Apple's shell has finished loading and the map
-     * containers are still collapsed (the condition behind "glViewport: negative width/height").
-     * It is deliberately revertible: if the shell later lays itself out correctly, removeRepair()
-     * takes our overrides back out so we never fight the real layout.
+     * Layout repair for the collapsed map container. On this site inside a WebView, #shell-map is laid
+     * out at height 0, which is what produces "glViewport: negative width/height" and an invisible map.
+     *
+     * Applied ONCE and never withdrawn: the collapse is permanent, and toggling the override made the
+     * measured rect look healthy (it was healthy only because of the override), which oscillated and
+     * made MapKit abort every in-flight tile request. removeRepair() is kept for manual debugging only.
      */
     repairLayout: function () {
       try {
@@ -119,6 +121,7 @@
           document.head.appendChild(style);
         }
         style.textContent =
+          "html,body{height:" + h + "px !important;}" +
           "#shell-wrapper,#shell-container,#shell-map-outer,#shell-map{" +
           "width:" + w + "px !important;height:" + h + "px !important;min-height:0 !important;}";
         window.dispatchEvent(new Event("resize"));
