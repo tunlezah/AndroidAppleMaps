@@ -109,8 +109,10 @@
      *   level 1 — give html/body a definite height. The site sizes its containers in percentages, so a
      *             viewport-height basis is usually all that is missing, and the shell (including the
      *             draggable "Find Nearby" tray) keeps its own layout and gesture behaviour.
-     *   level 2 — additionally pin the container chain. A blunt instrument: it fixes the map but
-     *             overrides heights the tray depends on, so it is only used if level 1 is insufficient.
+     *   level 2 — additionally pin the map's own box (#shell-map-outer/#shell-map). Enough to make the
+     *             map visible while leaving the rest of the shell, including the tray, alone.
+     *   level 3 — additionally pin the outer shell chain (#shell-wrapper/#shell-container). This is what
+     *             overrides the heights the tray's drag depends on, so it is a last resort.
      *
      * Sticky once applied: toggling it made the measured rect look healthy (it was healthy only because
      * of the override), which oscillated and made MapKit abort every in-flight tile request.
@@ -126,12 +128,12 @@
           style.id = "__mapsdroid_fix";
           document.head.appendChild(style);
         }
+        var box = "width:" + w + "px !important;height:" + h + "px !important;min-height:0 !important;}";
         var css = "html,body{height:" + h + "px !important;min-height:" + h + "px !important;}";
-        if (level >= 2) {
-          css +=
-            "#shell-wrapper,#shell-container,#shell-map-outer,#shell-map{" +
-            "width:" + w + "px !important;height:" + h + "px !important;min-height:0 !important;}";
-        }
+        // Level 2 pins only the map's own box. Level 3 also pins the outer shell chain, which is what
+        // freezes the draggable tray, so it is a last resort.
+        if (level >= 2) css += "#shell-map-outer,#shell-map{" + box;
+        if (level >= 3) css += "#shell-wrapper,#shell-container{" + box;
         style.textContent = css;
         style.setAttribute("data-level", String(level));
         window.dispatchEvent(new Event("resize"));

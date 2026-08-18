@@ -25,6 +25,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -181,6 +184,8 @@ class AppleMapsSession(
                 if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                     view.evaluateJavascript(injectedScript(), null)
                 }
+                // A new document drops our injected tray style, so restore the user's choice.
+                if (_trayCollapsed.value) main.postDelayed({ applyTrayState() }, 400)
                 // Insurance: if MapKit measured itself mid-layout, one resize makes it recompute.
                 // Strictly once per load — the SPA fires onPageFinished repeatedly, and repeated
                 // resizes make MapKit abort in-flight tile requests.
@@ -296,9 +301,19 @@ class AppleMapsSession(
         }
     }
 
+    private val _trayCollapsed = MutableStateFlow(false)
+    val trayCollapsed: StateFlow<Boolean> = _trayCollapsed.asStateFlow()
+    private var trayAutoHidden = false
+
     /** Hides or restores the site's bottom tray so the map underneath is reachable. */
     fun setTrayCollapsed(collapsed: Boolean) {
+        _trayCollapsed.value = collapsed
+        applyTrayState()
+    }
+
+    private fun applyTrayState() {
         val view = webView ?: return
+        val collapsed = _trayCollapsed.value
         main.post {
             view.evaluateJavascript(
                 "window.__mapsdroid && window.__mapsdroid.setTrayCollapsed($collapsed);",
@@ -392,6 +407,17 @@ class AppleMapsSession(
     override fun onPageProbe(json: String) {
         addDiagnostic("probe: $json")
         onDiagnostic("probe: $json")
+        // Level 3 is the override that freezes the site's draggable tray. When it is required, the tray
+        // can no longer be dismissed by dragging, so collapse it once to leave the map usable. The
+        // "Panel" control still brings it back.
+        val level = runCatching {
+            this.json.parseToJsonElement(json).jsonObject["fixLevel"]?.jsonPrimitive?.int
+        }.getOrNull() ?: return
+        if (level >= 3 && !trayAutoHidden && !_trayCollapsed.value) {
+            trayAutoHidden = true
+            addDiagnostic("tray auto-hidden (repair level 3 freezes its drag handle)")
+            setTrayCollapsed(true)
+        }
     }
 
     /**
@@ -417,14 +443,9 @@ class AppleMapsSession(
             // Sticky: once the map measures healthy we never withdraw the override, because toggling it
             // made MapKit abort every in-flight tile request.
             if (collapsed(mapRect) && window.innerHeight > 0 && window.__mapsdroid) {
-              if (level < 1) {
-                window.__mapsdroid.repairLayout(1);
-                level = 1;
-                mapRect = rect('shell-map');
-              }
-              if (collapsed(mapRect) && level < 2) {
-                window.__mapsdroid.repairLayout(2);
-                level = 2;
+              while (level < 3 && collapsed(mapRect)) {
+                level++;
+                window.__mapsdroid.repairLayout(level);
                 mapRect = rect('shell-map');
               }
             }
