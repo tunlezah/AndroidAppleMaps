@@ -296,6 +296,17 @@ class AppleMapsSession(
         }
     }
 
+    /** Hides or restores the site's bottom tray so the map underneath is reachable. */
+    fun setTrayCollapsed(collapsed: Boolean) {
+        val view = webView ?: return
+        main.post {
+            view.evaluateJavascript(
+                "window.__mapsdroid && window.__mapsdroid.setTrayCollapsed($collapsed);",
+                null,
+            )
+        }
+    }
+
     /** Nudges the page to recompute its layout/GL viewport against the current view size. */
     fun dispatchResize() {
         val view = webView ?: return
@@ -397,19 +408,27 @@ class AppleMapsSession(
               var r = e.getBoundingClientRect();
               return [Math.round(r.width), Math.round(r.height)];
             }
+            function collapsed(r) { return !r || r[0] <= 0 || r[1] <= 0; }
             var mapRect = rect('shell-map');
-            var degenerate = mapRect && (mapRect[0] <= 0 || mapRect[1] <= 0);
-            var alreadyFixed = !!document.getElementById('__mapsdroid_fix');
-            var repaired = false;
-            // The collapse is permanent: with our override removed, the site lays #shell-map out at
-            // height 0. So the repair is STICKY — applied once, never withdrawn. Reverting it made the
-            // rect look healthy (it was healthy *because* of the override), so the old logic oscillated
-            // applied/reverted, and each cycle's resize made MapKit abort its in-flight tile requests
-            // ("AbortError: signal is aborted without reason"), so no tile ever finished loading.
-            if (!alreadyFixed && degenerate && window.innerHeight > 0 && window.__mapsdroid) {
-              repaired = window.__mapsdroid.repairLayout();
-              mapRect = rect('shell-map');
+            var fixEl = document.getElementById('__mapsdroid_fix');
+            var level = fixEl ? parseInt(fixEl.getAttribute('data-level') || '0', 10) : 0;
+            // Escalate only as far as needed, so the tray keeps its own layout and drag gesture where
+            // possible. getBoundingClientRect forces a reflow, so each level can be measured at once.
+            // Sticky: once the map measures healthy we never withdraw the override, because toggling it
+            // made MapKit abort every in-flight tile request.
+            if (collapsed(mapRect) && window.innerHeight > 0 && window.__mapsdroid) {
+              if (level < 1) {
+                window.__mapsdroid.repairLayout(1);
+                level = 1;
+                mapRect = rect('shell-map');
+              }
+              if (collapsed(mapRect) && level < 2) {
+                window.__mapsdroid.repairLayout(2);
+                level = 2;
+                mapRect = rect('shell-map');
+              }
             }
+            var repaired = level > 0;
 
             // Canvas drawing-buffer vs CSS size: a zero-sized buffer renders nothing.
             var canvases = Array.prototype.slice.call(document.querySelectorAll('canvas')).map(function (c) {
@@ -444,7 +463,8 @@ class AppleMapsSession(
               map: mapRect,
               canvases: canvases,
               repaired: repaired,
-              fixed: alreadyFixed || repaired,
+              fixLevel: level,
+              tray: rect('shell-tray'),
               hosts: res,
               failures: bad,
               readyState: document.readyState

@@ -102,14 +102,20 @@
     },
 
     /**
-     * Layout repair for the collapsed map container. On this site inside a WebView, #shell-map is laid
-     * out at height 0, which is what produces "glViewport: negative width/height" and an invisible map.
+     * Layout repair for the collapsed map container. Inside a WebView this site lays #shell-map out at
+     * height 0, which produces "glViewport: negative width/height" and an invisible map.
      *
-     * Applied ONCE and never withdrawn: the collapse is permanent, and toggling the override made the
-     * measured rect look healthy (it was healthy only because of the override), which oscillated and
-     * made MapKit abort every in-flight tile request. removeRepair() is kept for manual debugging only.
+     * Progressive, so we disturb the page as little as possible:
+     *   level 1 — give html/body a definite height. The site sizes its containers in percentages, so a
+     *             viewport-height basis is usually all that is missing, and the shell (including the
+     *             draggable "Find Nearby" tray) keeps its own layout and gesture behaviour.
+     *   level 2 — additionally pin the container chain. A blunt instrument: it fixes the map but
+     *             overrides heights the tray depends on, so it is only used if level 1 is insufficient.
+     *
+     * Sticky once applied: toggling it made the measured rect look healthy (it was healthy only because
+     * of the override), which oscillated and made MapKit abort every in-flight tile request.
      */
-    repairLayout: function () {
+    repairLayout: function (level) {
       try {
         var w = window.innerWidth;
         var h = window.innerHeight;
@@ -120,12 +126,16 @@
           style.id = "__mapsdroid_fix";
           document.head.appendChild(style);
         }
-        style.textContent =
-          "html,body{height:" + h + "px !important;}" +
-          "#shell-wrapper,#shell-container,#shell-map-outer,#shell-map{" +
-          "width:" + w + "px !important;height:" + h + "px !important;min-height:0 !important;}";
+        var css = "html,body{height:" + h + "px !important;min-height:" + h + "px !important;}";
+        if (level >= 2) {
+          css +=
+            "#shell-wrapper,#shell-container,#shell-map-outer,#shell-map{" +
+            "width:" + w + "px !important;height:" + h + "px !important;min-height:0 !important;}";
+        }
+        style.textContent = css;
+        style.setAttribute("data-level", String(level));
         window.dispatchEvent(new Event("resize"));
-        log("layout repair applied");
+        log("layout repair level " + level + " applied");
         return true;
       } catch (e) {
         log("repairLayout failed: " + e);
@@ -140,6 +150,29 @@
         style.parentNode.removeChild(style);
         window.dispatchEvent(new Event("resize"));
         log("layout repair reverted (shell laid out correctly)");
+        return true;
+      } catch (e) {
+        return false;
+      }
+    },
+
+    /**
+     * Hides or restores the bottom "Find Nearby" tray. The site's own drag handle does not respond in
+     * an Android WebView, so this gives the app a reliable way to uncover the map.
+     */
+    setTrayCollapsed: function (collapsed) {
+      try {
+        var style = document.getElementById("__mapsdroid_tray");
+        if (!style) {
+          style = document.createElement("style");
+          style.id = "__mapsdroid_tray";
+          document.head.appendChild(style);
+        }
+        style.textContent = collapsed
+          ? "#shell-tray,#shell-tray-bg{display:none !important;}"
+          : "";
+        window.dispatchEvent(new Event("resize"));
+        log("tray " + (collapsed ? "hidden" : "shown"));
         return true;
       } catch (e) {
         return false;

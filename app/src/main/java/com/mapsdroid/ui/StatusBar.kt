@@ -27,7 +27,8 @@ fun StatusBar(
     pageStatus: PageStatus,
     offlineRegions: Int,
     onReload: () -> Unit,
-    onOpenExternally: () -> Unit,
+    onToggleTray: () -> Unit,
+    trayHidden: Boolean,
     onShowDiagnostics: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -64,8 +65,10 @@ fun StatusBar(
                 )
             }
             Row {
+                TextButton(onClick = onToggleTray) {
+                    Text(if (trayHidden) "Panel" else "Hide panel", fontSize = 11.sp)
+                }
                 TextButton(onClick = onReload) { Text("Reload", fontSize = 11.sp) }
-                TextButton(onClick = onOpenExternally) { Text("Browser", fontSize = 11.sp) }
                 TextButton(onClick = onShowDiagnostics) { Text("Logs", fontSize = 11.sp) }
             }
         }

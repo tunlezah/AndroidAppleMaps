@@ -48,6 +48,7 @@ fun MapScreen(viewModel: MainViewModel) {
     val location by viewModel.currentLocation.collectAsState()
     val regions by viewModel.offlineManager.regions.collectAsState()
     val pageStatus by viewModel.pageStatus.collectAsState()
+    val trayHidden by viewModel.trayHidden.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
     val webViewRef = remember { mutableStateOf<WebView?>(null) }
     var showDiagnostics by remember { mutableStateOf(false) }
@@ -81,7 +82,8 @@ fun MapScreen(viewModel: MainViewModel) {
             pageStatus = pageStatus,
             offlineRegions = regions.size,
             onReload = viewModel::reloadMap,
-            onOpenExternally = { openAppleMapsExternally(context) },
+            onToggleTray = viewModel::toggleTray,
+            trayHidden = trayHidden,
             onShowDiagnostics = { showDiagnostics = true },
         )
 

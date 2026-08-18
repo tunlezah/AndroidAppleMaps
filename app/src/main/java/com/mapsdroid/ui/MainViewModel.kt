@@ -80,6 +80,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearDiagnostics() = session.clearDiagnostics()
 
+    private val _trayHidden = MutableStateFlow(false)
+    val trayHidden: StateFlow<Boolean> = _trayHidden
+
+    /** Hides/shows the Apple page's bottom panel; its own drag handle is inert in a WebView. */
+    fun toggleTray() {
+        val hide = !_trayHidden.value
+        _trayHidden.value = hide
+        session.setTrayCollapsed(hide)
+    }
+
     /** Diagnostic: replaces the Apple page with a trivial local page to test rendering. */
     fun runRenderTest() = session.loadRenderTest()
 
