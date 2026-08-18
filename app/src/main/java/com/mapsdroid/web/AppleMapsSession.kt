@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.UUID
@@ -145,7 +146,10 @@ class AppleMapsSession(
             // Honor the site's <meta viewport> the way Chrome does. Without this the WebView ignores
             // width=device-width, which can break a responsive SPA's layout maths.
             useWideViewPort = true
-            loadWithOverviewMode = true
+            // Deliberately false: Chrome has no equivalent. With a viewport meta of
+            // width=device-width,initial-scale=1 an overview-mode fit-to-width zoom leaves the page at a
+            // scale other than 1, which skews layout maths and drag gestures.
+            loadWithOverviewMode = false
             // Present as a modern mobile Chrome so maps.apple.com serves its full mobile client.
             userAgentString = MOBILE_CHROME_UA
         }
@@ -279,6 +283,7 @@ class AppleMapsSession(
         pendingLoad = false
         hasLoaded = true
         resizeNudged = false
+        trayAutoHidden = false
         lastWidth = view.width
         lastHeight = view.height
         _pageStatus.value = PageStatus.Loading(CONSUMER_URL)
@@ -410,12 +415,19 @@ class AppleMapsSession(
         // Level 3 is the override that freezes the site's draggable tray. When it is required, the tray
         // can no longer be dismissed by dragging, so collapse it once to leave the map usable. The
         // "Panel" control still brings it back.
-        val level = runCatching {
-            this.json.parseToJsonElement(json).jsonObject["fixLevel"]?.jsonPrimitive?.int
-        }.getOrNull() ?: return
-        if (level >= 3 && !trayAutoHidden && !_trayCollapsed.value) {
+        val obj = runCatching { this.json.parseToJsonElement(json).jsonObject }.getOrNull() ?: return
+        val mapHealthy = runCatching {
+            val r = obj["map"]?.jsonArray
+            (r?.get(0)?.jsonPrimitive?.int ?: 0) > 0 && (r?.get(1)?.jsonPrimitive?.int ?: 0) > 0
+        }.getOrDefault(false)
+
+        // Map-first default: the site opens with its "Find Nearby" tray expanded over the map, and its
+        // drag handle does not respond to touch in a WebView, so the map would be unreachable. Once the
+        // map is confirmed to have a real size, collapse the tray once per load. The user's explicit
+        // choice via the Panel control is respected from then on.
+        if (mapHealthy && !trayAutoHidden) {
             trayAutoHidden = true
-            addDiagnostic("tray auto-hidden (repair level 3 freezes its drag handle)")
+            addDiagnostic("tray collapsed by default so the map is visible (use Panel to show it)")
             setTrayCollapsed(true)
         }
     }

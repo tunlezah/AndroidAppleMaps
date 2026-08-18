@@ -164,6 +164,11 @@
      */
     setTrayCollapsed: function (collapsed) {
       try {
+        var tray = document.getElementById("shell-tray");
+        if (!tray) {
+          log("tray element #shell-tray not found — cannot collapse");
+          return false;
+        }
         var style = document.getElementById("__mapsdroid_tray");
         if (!style) {
           style = document.createElement("style");
@@ -174,9 +179,12 @@
           ? "#shell-tray,#shell-tray-bg{display:none !important;}"
           : "";
         window.dispatchEvent(new Event("resize"));
-        log("tray " + (collapsed ? "hidden" : "shown"));
+        var r = tray.getBoundingClientRect();
+        log("tray " + (collapsed ? "hidden" : "shown") +
+            " (now " + Math.round(r.width) + "x" + Math.round(r.height) + ")");
         return true;
       } catch (e) {
+        log("setTrayCollapsed failed: " + e);
         return false;
       }
     },
